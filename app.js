@@ -1,7 +1,7 @@
 'use strict';
 /* WCA Graphs – statistik ur World Cube Associations öppna API.
    Överst: ren logik (testas i test/kor.mjs). Nederst: DOM och grafer. */
-const APP_VERSION = 2;
+const APP_VERSION = 3;
 const API = 'https://www.worldcubeassociation.org/api/v0';
 const DEFAULT_ID = '2019AIRA01';
 
