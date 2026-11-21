@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WCA Graphs</title>
+<meta name="description" content="Statistik och grafer ur World Cube Associations resultat">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="WCA Graphs">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+:root {
+  color-scheme: light dark;
+  --plane: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --base: #c3c2b7; --border: rgba(11,11,11,.10); --wash: rgba(11,11,11,.05);
+  --s1: #2a78d6; --s2: #eb6834; --good: #006300;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --plane: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --base: #383835; --border: rgba(255,255,255,.10); --wash: rgba(255,255,255,.07);
+    --s1: #3987e5; --s2: #d95926; --good: #0ca30c;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--plane); color: var(--ink); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1500px; margin: 0 auto; padding: calc(14px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+button, input { font: inherit; color: inherit; }
+a { color: inherit; }
+[hidden] { display: none !important; }
+
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+#profile { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+.avatar { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; background: var(--wash); flex: none; }
+h1 { font-size: 20px; margin: 0; line-height: 1.2; }
+.who { min-width: 0; }
+.who p { margin: 2px 0 0; color: var(--ink2); font-size: 13px; }
+.btn { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--wash); }
+
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 14px; }
+#events { display: flex; gap: 6px; flex-wrap: wrap; flex: 1 1 100%; }
+.chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+.chip span { color: var(--muted); font-size: 12px; margin-left: 2px; }
+.chip[aria-pressed=true] { background: var(--ink); color: var(--plane); border-color: var(--ink); }
+.chip[aria-pressed=true] span { color: inherit; opacity: .7; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: none; padding: 6px 11px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed=true] { background: var(--wash); font-weight: 600; }
+.check { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+#tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
+.tile, .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.tile { padding: 12px 14px; min-width: 0; }
+.tl { color: var(--ink2); font-size: 13px; }
+.tv { font-size: 28px; font-weight: 600; line-height: 1.25; }
+.ts { color: var(--ink2); font-size: 12px; }
+
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 8fr); gap: 12px; align-items: start; }
+.card { padding: 14px 14px 10px; min-width: 0; margin-bottom: 12px; }
+.grid3 .card, .grid2 .card { margin-bottom: 0; }
+h2 { font-size: 15px; margin: 0; }
+.sub { color: var(--ink2); font-size: 12px; margin: 1px 0 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink2); margin-bottom: 4px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.k { display: inline-block; width: 14px; height: 2px; border-radius: 2px; flex: none; }
+.k.s1 { background: var(--s1); } .k.s2 { background: var(--s2); }
+.k.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); opacity: .6; }
+.k.ring { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--ink2); }
+.plot { height: 240px; position: relative; }
+.plot.big { height: 380px; }
+.plot svg { display: block; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+.empty { color: var(--muted); font-size: 13px; margin: 0; padding-top: 40px; text-align: center; }
+
+.grid { stroke: var(--grid); stroke-width: 1; }
+.base, .tick { stroke: var(--base); stroke-width: 1; }
+.ax { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.end, .cap { fill: var(--ink2); font-size: 11px; font-weight: 600; }
+.ln { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ln.s1, .pb.s1 { stroke: var(--s1); } .ln.s2, .pb.s2 { stroke: var(--s2); }
+.ln.thin { stroke-width: 1.25; }
+.mk { stroke: var(--surface); stroke-width: 2; }
+.mk.s1 { fill: var(--s1); } .mk.s2 { fill: var(--s2); }
+.pb { fill: none; stroke-width: 1.5; }
+.att { fill: var(--muted); opacity: .45; }
+.bar { fill: var(--s1); }
+.xh { stroke: var(--base); stroke-width: 1; display: none; pointer-events: none; }
+
+#tip { position: fixed; z-index: 10; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12px; max-width: 280px; box-shadow: 0 4px 16px rgba(0,0,0,.18); }
+#tip .tm { color: var(--ink2); font-variant-numeric: tabular-nums; }
+#tip .tr { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+em { font-style: normal; font-size: 10px; font-weight: 700; color: var(--good); border: 1px solid currentColor; border-radius: 4px; padding: 0 3px; }
+
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -14px; padding: 0 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { text-align: left; color: var(--ink2); font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--base); white-space: nowrap; }
+td { padding: 7px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+.n { text-align: right; font-variant-numeric: tabular-nums; }
+.nw { white-space: nowrap; }
+td.att { color: var(--ink2); font-variant-numeric: tabular-nums; }
+td small { display: block; color: var(--ink2); font-size: 11px; white-space: nowrap; }
+#t-events tbody tr { cursor: pointer; }
+#t-events tbody tr:hover, #t-events tr.on { background: var(--wash); }
+
+#status { padding: 60px 0; text-align: center; color: var(--ink2); }
+footer { color: var(--muted); font-size: 12px; margin-top: 18px; text-align: center; }
+
+dialog { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--ink); padding: 16px; width: min(440px, calc(100vw - 32px)); max-height: min(560px, 80vh); }
+dialog[open] { display: flex; flex-direction: column; }
+dialog::backdrop { background: rgba(0,0,0,.45); }
+.dh { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+#q { width: 100%; padding: 10px 12px; border: 1px solid var(--base); border-radius: 8px; background: var(--plane); font-size: 16px; }
+#hits { overflow-y: auto; margin-top: 8px; }
+.hit { display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; border: 0; background: none; padding: 9px 8px; border-radius: 8px; cursor: pointer; }
+.hit:hover { background: var(--wash); }
+.hit span { color: var(--ink2); font-size: 13px; white-space: nowrap; }
+.hint { color: var(--muted); font-size: 12px; margin: 8px 8px 4px; }
+
+@media (max-width: 1100px) {
+  .grid3 { grid-template-columns: repeat(2, 1fr); }
+  .grid3 .card:first-child { grid-column: 1 / -1; }
+  .grid2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 700px) {
+  #tiles { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .tv { font-size: 22px; }
+  .grid3 { grid-template-columns: minmax(0, 1fr); }
+  .plot.big { height: 300px; }
+  .plot { height: 220px; }
+  #events { flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px; padding: 0 16px 2px; scrollbar-width: none; }
+  #events::-webkit-scrollbar { display: none; }
+  h1 { font-size: 18px; }
+  .avatar { width: 44px; height: 44px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div id="profile"></div>
+    <button class="btn" id="change">Byt profil</button>
+  </header>
+  <div id="status">Hämtar …</div>
+  <div id="content" hidden>
+    <div class="controls">
+      <div id="events" aria-label="Gren"></div>
+      <div class="seg" id="period" aria-label="Period">
+        <button data-v="0">Allt</button><button data-v="24">2 år</button><button data-v="12">12 mån</button>
+      </div>
+      <div class="seg" id="xmode" aria-label="Tidsaxel">
+        <button data-v="datum">Efter datum</button><button data-v="runda">Runda för runda</button>
+      </div>
+      <div class="seg" id="scale" aria-label="Skala">
+        <button data-v="log">Logskala</button><button data-v="lin">Linjär skala</button>
+      </div>
+      <label class="check"><input type="checkbox" id="dots"> Visa enskilda försök</label>
+    </div>
+    <div id="tiles"></div>
+    <section class="card">
+      <h2>Tider per runda, <span id="ev-name"></span></h2>
+      <p class="sub">Varje punkt är en runda i en tävling. Lägre är bättre. På logskalan är en halvering av tiden alltid lika högt steg.</p>
+      <div class="legend">
+        <span><i class="k s1"></i>Snitt</span><span><i class="k s2"></i>Bästa försök</span>
+        <span id="lg-dots"><i class="k dot"></i>Enskilda försök</span><span><i class="k ring"></i>Nytt personbästa</span>
+      </div>
+      <div class="plot big" id="c-rounds"></div>
+    </section>
+    <div class="grid3">
+      <section class="card">
+        <h2>Personbästa över tid</h2>
+        <p class="sub">Varje trappsteg är ett nytt personbästa.</p>
+        <div class="legend"><span><i class="k s1"></i>Snitt</span><span><i class="k s2"></i>Enskilt</span></div>
+        <div class="plot" id="c-pb"></div>
+      </section>
+      <section class="card">
+        <h2>Mediantid per år</h2>
+        <p class="sub">Mittenvärdet av årets alla giltiga försök.</p>
+        <div class="plot" id="c-year"></div>
+      </section>
+      <section class="card">
+        <h2>Fördelning av försöken</h2>
+        <p class="sub">Antal försök per tidsintervall i vald period.</p>
+        <div class="plot" id="c-hist"></div>
+      </section>
+    </div>
+    <div class="grid2">
+      <section class="card">
+        <h2>Alla grenar</h2>
+        <p class="sub">Personbästa och ranking. Tryck på en rad för att byta gren.</p>
+        <div class="scroll"><table id="t-events"></table></div>
+      </section>
+      <section class="card">
+        <h2>Rundor</h2>
+        <p class="sub">Vald gren och period, nyast först. Bästa och sämsta försöket står inom parentes och räknas inte i snittet.</p>
+        <div class="scroll"><table id="t-rounds"></table></div>
+      </section>
+    </div>
+  </div>
+  <footer>Data från <a href="https://www.worldcubeassociation.org" target="_blank" rel="noopener">World Cube Association</a> · <span id="ver"></span></footer>
+</main>
+<div id="tip" hidden></div>
+<dialog id="picker">
+  <div class="dh"><h2>Byt profil</h2><button class="btn" id="close">Stäng</button></div>
+  <input id="q" type="search" placeholder="Namn eller WCA-id" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <div id="hits"></div>
+</dialog>
+<script src="app.js"></script>
+</body>
+</html>
