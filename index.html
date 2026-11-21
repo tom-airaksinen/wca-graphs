@@ -79,6 +79,8 @@ h2 { font-size: 15px; margin: 0; }
 .plot { height: 240px; position: relative; }
 .plot.big { height: 380px; }
 .plot svg { display: block; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+.plot.zoomed svg { touch-action: none; cursor: grab; }
+.plot.zoomed svg:active { cursor: grabbing; }
 .empty { color: var(--muted); font-size: 13px; margin: 0; padding-top: 40px; text-align: center; }
 
 .grid { stroke: var(--grid); stroke-width: 1; }

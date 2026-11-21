@@ -1,7 +1,7 @@
 'use strict';
 /* WCA Graphs – statistik ur World Cube Associations öppna API.
    Överst: ren logik (testas i test/kor.mjs). Nederst: DOM och grafer. */
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 const API = 'https://www.worldcubeassociation.org/api/v0';
 const LIVE = 'https://live.worldcubeassociation.org/api';
 const DEFAULT_ID = '2019AIRA01';
@@ -173,7 +173,8 @@ if (typeof document !== 'undefined') (() => {
   const st = { id: (new URLSearchParams(location.search).get('id') || store.id || DEFAULT_ID).toUpperCase(), ev: store.ev || '333',
     months: store.months || 0, xmode: store.xmode || 'runda', scale: store.scale || 'log', rkind: store.rkind || 'average', rregion: store.rregion || 'country', dots: store.dots !== false };
   let data = null, official = null, liveComps = [], liveTimer = 0, rsAll = [], rs = [];
-  st.zoom = 0;
+  st.zoom = 0; st.pan = 0;
+  let zoomGeo = null, dragging = null;
 
   /* ---------- hämtning ---------- */
   const get = async path => { const r = await fetch(API + path); if (!r.ok) throw new Error(r.status); return r.json(); };
@@ -230,7 +231,7 @@ if (typeof document !== 'undefined') (() => {
       const [p, results, comps] = await Promise.all([get('/persons/' + id), get('/persons/' + id + '/results'), get('/persons/' + id + '/competitions')]);
       data = { p, results, comps, events: eventsOf(results) };
       official = { results, comps };
-      st.id = id; st.zoom = 0; $('#zoom').value = 0; store.id = id;
+      st.id = id; st.zoom = 0; st.pan = 0; $('#zoom').value = 0; store.id = id;
       store.recent = [{ id, name: p.person.name }, ...(store.recent || []).filter(x => x.id !== id)].slice(0, 6);
       save();
       history.replaceState(null, '', '?id=' + id);   // alltid i adressen, så att varje profil går att bokmärka
@@ -303,6 +304,7 @@ if (typeof document !== 'undefined') (() => {
     const svg = $('svg', el), xh = $('.xh', svg);
     if (!svg || !pts.length) return;
     const move = e => {
+      if (dragging) return;
       const b = svg.getBoundingClientRect(), px = e.clientX - b.left, py = e.clientY - b.top;
       const dmin = Math.min(...pts.map(p => Math.abs(p.x - px)));
       // flera rundor samma dag ligger nästan på samma x: välj då den som är närmast i höjdled
@@ -317,9 +319,21 @@ if (typeof document !== 'undefined') (() => {
   const geom = (el, m) => ({ W: el.clientWidth, H: el.clientHeight, l: m.l, r: el.clientWidth - m.r, t: m.t, b: el.clientHeight - m.b });
   const open = (g, label) => `<svg width="${g.W}" height="${g.H}" viewBox="0 0 ${g.W} ${g.H}" role="img" aria-label="${esc(label)}">`;
   const f1 = v => +v.toFixed(1);
-  function yScale(g, vals, ev, zero, log) {
-    const la = log && st.scale === 'log' ? logAxis(Math.min(...vals), Math.max(...vals)) : null, tr = la ? Math.log : v => v;
-    const a = la || axis(zero ? 0 : Math.min(...vals), Math.max(...vals), g.b - g.t < 180 ? 3 : 5, isTime(ev)), minutes = a.hi >= 60;
+  // dom = exakt fönster {lo, hi} (inzoomat läge); annars väljs en jämn axel som rymmer alla värden
+  function yScale(g, vals, ev, zero, log, dom) {
+    const wantLog = log && st.scale === 'log';
+    let a, tr = v => v;
+    if (dom) {
+      if (wantLog && dom.lo > 0) tr = Math.log;
+      let ticks = tr === Math.log ? LOG_TICKS.filter(t => t >= dom.lo && t <= dom.hi) : [];
+      if (ticks.length < 3) ticks = axis(dom.lo, dom.hi, 5, isTime(ev)).ticks.filter(t => t >= dom.lo && t <= dom.hi);
+      a = { lo: dom.lo, hi: dom.hi, ticks };
+    } else {
+      const la = wantLog ? logAxis(Math.min(...vals), Math.max(...vals)) : null;
+      if (la) tr = Math.log;
+      a = la || axis(zero ? 0 : Math.min(...vals), Math.max(...vals), g.b - g.t < 180 ? 3 : 5, isTime(ev));
+    }
+    const minutes = a.hi >= 60;
     const y = v => f1(g.b - (tr(v) - tr(a.lo)) / (tr(a.hi) - tr(a.lo)) * (g.b - g.t));
     const svg = a.ticks.map(v => `<line class="grid" x1="${g.l}" x2="${g.r}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${g.l - 8}" y="${y(v) + 4}" text-anchor="end">${fmtAxis(v, ev, minutes)}</text>`).join('');
     return { y, svg, hi: a.hi };
@@ -355,20 +369,28 @@ if (typeof document !== 'undefined') (() => {
 
   function chartRounds() {
     const el = $('#c-rounds'), ev = st.ev;
-    $('#zinfo').textContent = ''; $('#zreset').hidden = !st.zoom;
+    $('#zinfo').textContent = ''; $('#zreset').hidden = !st.zoom; el.classList.remove('zoomed');
     if (!chartable(ev)) return empty(el, 'Multiblind visas bara i tabellerna – resultatet är poäng och tid i ett.');
     if (!rs.length) return empty(el, 'Inga rundor i vald period.');
     const g = geom(el, { l: 46, r: 58, t: 12, b: 28 }), xs = xScale(g, rs, st.xmode);
     const all = rs.flatMap(r => [r.best > 0 ? num(r.best, ev, 'single') : null, r.average > 0 ? num(r.average, ev, 'average') : null,
       ...(st.dots ? r.attempts.filter(a => a > 0).map(a => num(a, ev, 'single')) : [])]).filter(v => v !== null);
     if (!all.length) return empty(el, 'Inga giltiga resultat i vald period.');
-    // Zoom: reglaget sänker grafens överkant steglöst (i logskala) från högsta värdet ner mot det lägsta
-    let vals = all;
+    // Zoom: reglaget krymper fönstret i höjdled, och st.pan flyttar det (dra i grafen). Allt räknas i axelns egen skala.
+    let dom = null;
+    zoomGeo = null;
     if (st.zoom > 0) {
-      const lo = Math.min(...all) * 1.15, hi = Math.max(...all);
-      if (hi > lo) { const top = Math.exp(Math.log(hi) + (Math.log(lo) - Math.log(hi)) * st.zoom); vals = all.filter(v => v <= top).concat(top); }
+      const mn = Math.min(...all), mx = Math.max(...all), lg = st.scale === 'log' && mn > 0, T = lg ? Math.log : v => v, Ti = lg ? Math.exp : v => v;
+      const pad = lg ? Math.log(1.06) : (mx - mn) * 0.03, Lo = T(mn) - pad, full = T(mx) + pad - Lo, minSpan = lg ? Math.log(1.15) : full * 0.04;
+      if (full > minSpan) {
+        const span = full * Math.pow(minSpan / full, st.zoom);
+        st.pan = Math.max(0, Math.min(full - span, st.pan));
+        dom = { lo: Ti(Lo + st.pan), hi: Ti(Lo + st.pan + span) };
+        zoomGeo = { span, px: g.b - g.t };
+      }
     }
-    const ys = yScale(g, vals, ev, false, true), cut = all.filter(v => v > ys.hi).length, small = rs.length > 30 && g.W < 600 ? 3 : 4;
+    el.classList.toggle('zoomed', !!dom);
+    const ys = yScale(g, all, ev, false, true, dom), up = dom ? all.filter(v => v > dom.hi).length : 0, down = dom ? all.filter(v => v < dom.lo).length : 0, small = rs.length > 30 && g.W < 600 ? 3 : 4;
     const A = rs.filter(r => r.average > 0).map(r => ({ x: xs.x(r), y: ys.y(num(r.average, ev, 'average')), pb: r.pbAvg, r }));
     const B = rs.filter(r => r.best > 0).map(r => ({ x: xs.x(r), y: ys.y(num(r.best, ev, 'single')), pb: r.pbSingle, r }));
     const dots = st.dots ? rs.map(r => r.attempts.filter(a => a > 0).map(a => `<circle class="att" cx="${xs.x(r)}" cy="${ys.y(num(a, ev, 'single'))}" r="2.2"/>`).join('')).join('') : '';
@@ -376,10 +398,10 @@ if (typeof document !== 'undefined') (() => {
     const dense = (g.r - g.l) / rs.length < 8;
     const line = (pts, c) => `<path class="ln ${c}${dense ? ' thin' : ''}" d="${path(pts)}"/>` + pts.map(p => (p.pb ? `<circle class="pb ${c}" cx="${p.x}" cy="${p.y}" r="${small + 4}"/>` : '') + (dense && !p.pb ? '' : `<circle class="mk ${c}" cx="${p.x}" cy="${p.y}" r="${small}"/>`)).join('');
     const la = A[A.length - 1], lb = B[B.length - 1];
-    if (cut) $('#zinfo').textContent = cut + (cut === 1 ? ' värde' : ' värden') + ' ovanför bilden';
+    if (dom) $('#zinfo').textContent = `${up} över · ${down} under – dra i grafen för att flytta`;
     el.innerHTML = open(g, 'Snitt och bästa försök per runda') + ys.svg + xs.svg +
       `<clipPath id="cp-r"><rect x="${g.l - 10}" y="${g.t - 1}" width="${g.r - g.l + 20}" height="${g.b - g.t + 2}"/></clipPath><g clip-path="url(#cp-r)">` + dots + line(B, 's2') + line(A, 's1') + '</g>' +
-      endLabels(g, [la && la.y >= g.t && { y: la.y, text: fmt(la.r.average, ev, 'average') }, lb && lb.y >= g.t && { y: lb.y, text: fmt(lb.r.best, ev, 'single') }]) +
+      endLabels(g, [la && la.y >= g.t && la.y <= g.b && { y: la.y, text: fmt(la.r.average, ev, 'average') }, lb && lb.y >= g.t && lb.y <= g.b && { y: lb.y, text: fmt(lb.r.best, ev, 'single') }]) +
       `<line class="xh" y1="${g.t}" y2="${g.b}"/></svg>`;
     hover(el, rs.map(r => ({ x: xs.x(r), y: r.average > 0 ? ys.y(num(r.average, ev, 'average')) : r.best > 0 ? ys.y(num(r.best, ev, 'single')) : g.b, r })), p => tipRound(p.r));
   }
@@ -480,9 +502,26 @@ if (typeof document !== 'undefined') (() => {
   }
 
   /* ---------- kontroller ---------- */
-  const set = (k, v) => { st[k] = v; store[k] = v; if (k === 'ev') { st.zoom = 0; $('#zoom').value = 0; } save(); render(); };
+  const set = (k, v) => { st[k] = v; store[k] = v; if (k === 'ev') { st.zoom = 0; $('#zoom').value = 0; } if (k === 'ev' || k === 'scale') st.pan = 0; save(); render(); };
   $('#zoom').oninput = e => { st.zoom = e.target.value / 100; hideTip(); chartRounds(); };
-  $('#zreset').onclick = () => { st.zoom = 0; $('#zoom').value = 0; chartRounds(); };
+  $('#zreset').onclick = () => { st.zoom = 0; st.pan = 0; $('#zoom').value = 0; chartRounds(); };
+  // Inzoomat: dra i grafen (mus eller finger) för att flytta fönstret uppåt och nedåt
+  const plot = $('#c-rounds');
+  let panRaf = 0;
+  plot.addEventListener('pointerdown', e => {
+    if (!zoomGeo) return;
+    dragging = { y: e.clientY, pan: st.pan, moved: false };
+    try { plot.setPointerCapture(e.pointerId); } catch (err) { /* syntetiska händelser saknar pekare */ }
+  });
+  plot.addEventListener('pointermove', e => {
+    if (!dragging || !zoomGeo) return;
+    if (!dragging.moved && Math.abs(e.clientY - dragging.y) < 4) return;
+    dragging.moved = true;
+    st.pan = dragging.pan + (e.clientY - dragging.y) / zoomGeo.px * zoomGeo.span;
+    hideTip(); cancelAnimationFrame(panRaf); panRaf = requestAnimationFrame(chartRounds);
+  });
+  const slut = () => { dragging = null; };
+  plot.addEventListener('pointerup', slut); plot.addEventListener('pointercancel', slut);
   $('#events').onclick = e => { const b = e.target.closest('[data-ev]'); if (b) set('ev', b.dataset.ev); };
   $('#t-events').onclick = e => { const b = e.target.closest('[data-ev]'); if (b) { set('ev', b.dataset.ev); scrollTo({ top: 0, behavior: 'smooth' }); } };
   $('#period').onclick = e => { const b = e.target.closest('button'); if (b) set('months', +b.dataset.v); };
