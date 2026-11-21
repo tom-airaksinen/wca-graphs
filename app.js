@@ -1,7 +1,7 @@
 'use strict';
 /* WCA Graphs – statistik ur World Cube Associations öppna API.
    Överst: ren logik (testas i test/kor.mjs). Nederst: DOM och grafer. */
-const APP_VERSION = 4;
+const APP_VERSION = 5;
 const API = 'https://www.worldcubeassociation.org/api/v0';
 const LIVE = 'https://live.worldcubeassociation.org/api';
 const DEFAULT_ID = '2019AIRA01';
@@ -233,7 +233,7 @@ if (typeof document !== 'undefined') (() => {
       st.id = id; st.zoom = 0; $('#zoom').value = 0; store.id = id;
       store.recent = [{ id, name: p.person.name }, ...(store.recent || []).filter(x => x.id !== id)].slice(0, 6);
       save();
-      history.replaceState(null, '', id === DEFAULT_ID ? location.pathname : '?id=' + id);
+      history.replaceState(null, '', '?id=' + id);   // alltid i adressen, så att varje profil går att bokmärka
       if (!data.events.some(e => e.id === st.ev)) st.ev = (data.events.slice().sort((a, b) => b.rounds - a.rounds)[0] || {}).id || '333';
       $('#status').hidden = true; $('#content').hidden = false;
       render();
