@@ -1,7 +1,7 @@
 'use strict';
 /* WCA Graphs – statistik ur World Cube Associations öppna API.
    Överst: ren logik (testas i test/kor.mjs). Nederst: DOM och grafer. */
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 const API = 'https://www.worldcubeassociation.org/api/v0';
 const LIVE = 'https://live.worldcubeassociation.org/api';
 const DEFAULT_ID = '2019AIRA01';
@@ -381,10 +381,12 @@ if (typeof document !== 'undefined') (() => {
     zoomGeo = null;
     if (st.zoom > 0) {
       const mn = Math.min(...all), mx = Math.max(...all), lg = st.scale === 'log' && mn > 0, T = lg ? Math.log : v => v, Ti = lg ? Math.exp : v => v;
-      const pad = lg ? Math.log(1.06) : (mx - mn) * 0.03, Lo = T(mn) - pad, full = T(mx) + pad - Lo, minSpan = lg ? Math.log(1.15) : full * 0.04;
+      const pad = lg ? Math.log(1.06) : (mx - mn) * 0.03, Lo = lg ? T(mn) - pad : Math.max(0, mn - pad), full = T(mx) + pad - Lo, minSpan = lg ? Math.log(1.15) : full * 0.04;
       if (full > minSpan) {
         const span = full * Math.pow(minSpan / full, st.zoom);
-        st.pan = Math.max(0, Math.min(full - span, st.pan));
+        // Nedåt går det att dra förbi det lägsta värdet: till 0 på linjär skala, till 1 på logskala (där 0 inte finns)
+        const golv = lg ? Math.log(Math.min(1, mn / 4)) : 0;
+        st.pan = Math.max(Math.min(0, golv - Lo), Math.min(full - span, st.pan));
         dom = { lo: Ti(Lo + st.pan), hi: Ti(Lo + st.pan + span) };
         zoomGeo = { span, px: g.b - g.t };
       }

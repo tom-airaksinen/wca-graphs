@@ -126,7 +126,8 @@ td small { display: block; color: var(--ink2); font-size: 11px; white-space: now
 .rt { color: var(--ink2); font-size: 12px; }
 
 .zoom { margin-left: auto; gap: 8px !important; }
-.zoom input { width: 140px; accent-color: var(--ink); }
+.zoom input { width: 140px; flex: none; accent-color: var(--ink); }
+#zinfo { font-variant-numeric: tabular-nums; }
 .zoom .btn { padding: 2px 8px; font-size: 12px; }
 #live { margin: 0 0 14px; padding: 9px 12px; border: 1px solid var(--border); border-left: 3px solid var(--s2); border-radius: 8px; background: var(--surface); font-size: 13px; }
 #live b { margin-right: 6px; }
@@ -159,8 +160,10 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
   #events { flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px; padding: 0 16px 2px; scrollbar-width: none; }
   #events::-webkit-scrollbar { display: none; }
   h1 { font-size: 18px; }
-  .zoom { margin-left: 0; flex-basis: 100%; }
+  .zoom { margin-left: 0; flex-basis: 100%; flex-wrap: wrap; }
   .zoom input { flex: 1; }
+  #zinfo { flex-basis: 100%; order: 9; }
+  #zreset { order: 8; }
   .avatar { width: 44px; height: 44px; }
 }
 </style>
@@ -194,7 +197,7 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
       <div class="legend">
         <span><i class="k s1"></i>Snitt</span><span><i class="k s2"></i>Bästa försök</span>
         <span id="lg-dots"><i class="k dot"></i>Enskilda försök</span><span><i class="k ring"></i>Nytt personbästa</span>
-        <span class="zoom"><label for="zoom">Zooma in</label><input type="range" id="zoom" min="0" max="100" value="0"><span id="zinfo"></span><button class="btn" id="zreset" hidden>Återställ</button></span>
+        <span class="zoom"><span id="zinfo"></span><button class="btn" id="zreset" hidden>Återställ</button><label for="zoom">Zooma in</label><input type="range" id="zoom" min="0" max="100" value="0"></span>
       </div>
       <div class="plot big" id="c-rounds"></div>
     </section>
