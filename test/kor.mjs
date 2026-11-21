@@ -102,4 +102,17 @@ test('ranking: bäst placering först, grenar utan resultat sist', () => {
   eq(W.rankList(pr, ev, 'single', 'world').map(r => r.id + ':' + r.rank), ['777:7410', '333:15606', 'sq1:0']);
 });
 
+test('liveresultat görs om till samma form som de officiella', () => {
+  const round = (n, total, ev) => ({ number: n, competitionEvent: { event: { id: ev }, rounds: Array(total).fill({ id: 'x' }) } });
+  const person = { results: [
+    { ranking: 4, best: 7877, average: 8605, attempts: [7877, 8987, 8866, 7961, 9133].map(result => ({ result })), round: round(1, 1, '555') },
+    { ranking: null, best: 1100, average: 0, attempts: [{ result: 1100 }, { result: -1 }], round: round(1, 3, '333') },
+    { ranking: null, best: 0, average: 0, attempts: [], round: round(1, 2, '222') },
+  ] };
+  const r = W.liveResults(person, { wcaId: 'Norr2026' });
+  eq(r.map(x => [x.event_id, x.round_type_id, x.pos, x.best, x.average, x.attempts.length, x.live]), [['555', 'f', 4, 7877, 8605, 5, true], ['333', '1', 0, 1100, 0, 2, true]]);
+  const rs = W.rounds(r, [{ id: 'Norr2026', name: 'Norrlandsmästerskapet', start_date: '2026-11-21' }], '555');
+  assert.equal(rs[0].live, true); assert.equal(rs[0].comp, 'Norrlandsmästerskapet'); assert.equal(rs[0].pbSingle, true);
+});
+
 console.log(`\n${n} tester gick igenom`);

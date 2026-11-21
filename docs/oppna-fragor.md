@@ -6,5 +6,7 @@
 - [ ] Tävlingskarta (API:t ger latitud och longitud per tävling)?
 - [ ] Ska multiblind få egna grafer (poäng i stället för tid)?
 
+- [ ] Procent av fältet i rankingen ("topp 15 %")? Antalet rankade per gren finns bara i databasexporten.
+
 ## Utformning
 - [ ] Är logskala och "Runda för runda" rätt förval, eller vill Aron hellre ha linjär skala och datum?

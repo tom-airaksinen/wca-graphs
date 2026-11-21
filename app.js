@@ -1,8 +1,9 @@
 'use strict';
 /* WCA Graphs – statistik ur World Cube Associations öppna API.
    Överst: ren logik (testas i test/kor.mjs). Nederst: DOM och grafer. */
-const APP_VERSION = 3;
+const APP_VERSION = 4;
 const API = 'https://www.worldcubeassociation.org/api/v0';
+const LIVE = 'https://live.worldcubeassociation.org/api';
 const DEFAULT_ID = '2019AIRA01';
 
 const EVENTS = [['333', '3x3'], ['222', '2x2'], ['444', '4x4'], ['555', '5x5'], ['666', '6x6'], ['777', '7x7'],
@@ -69,7 +70,7 @@ function rounds(results, comps, ev) {
   const rs = results.filter(r => r.event_id === ev).map(r => {
     const c = cm.get(r.competition_id) || {};
     return { compId: r.competition_id, comp: c.name || r.competition_id, city: c.city || '', date: c.start_date || '', type: r.round_type_id,
-      pos: r.pos, best: r.best, average: r.average, attempts: (r.attempts || []).filter(a => a !== 0) };
+      pos: r.pos, best: r.best, average: r.average, attempts: (r.attempts || []).filter(a => a !== 0), live: !!r.live };
   });
   const ro = t => ROUND_ORDER.indexOf(t);
   rs.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : a.compId !== b.compId ? (a.compId < b.compId ? -1 : 1) : ro(a.type) - ro(b.type));
@@ -148,7 +149,17 @@ function rankList(pr, events, kind, region) {
     .sort((a, b) => (a.rank || Infinity) - (b.rank || Infinity));
 }
 
-var WCA = { rankList, fmt, fmtCs, fmtMbf, fmtAxis, fmtDate, num, rounds, eventsOf, inPeriod, cutoff, median, yearly, niceStep, axis, logAxis, histogram, flag };
+// WCA Lives resultat för en person i en pågående tävling, omgjorda till samma form som det officiella API:t.
+// Sista rundan i en gren är final; rundor utan inmatade försök hoppas över.
+function liveResults(person, comp) {
+  return (person.results || []).filter(r => r.attempts && r.attempts.length).map(r => {
+    const ce = r.round.competitionEvent;
+    return { event_id: ce.event.id, competition_id: comp.wcaId, round_type_id: r.round.number === ce.rounds.length ? 'f' : String(r.round.number),
+      pos: r.ranking || 0, best: r.best || 0, average: r.average || 0, attempts: r.attempts.map(a => a.result), live: true };
+  });
+}
+
+var WCA = { rankList, liveResults, fmt, fmtCs, fmtMbf, fmtAxis, fmtDate, num, rounds, eventsOf, inPeriod, cutoff, median, yearly, niceStep, axis, logAxis, histogram, flag };
 
 /* ================= DOM ================= */
 if (typeof document !== 'undefined') (() => {
@@ -161,22 +172,72 @@ if (typeof document !== 'undefined') (() => {
   const save = () => { try { localStorage.setItem(LS, JSON.stringify(store)); } catch (e) { /* privat läge: appen fungerar ändå */ } };
   const st = { id: (new URLSearchParams(location.search).get('id') || store.id || DEFAULT_ID).toUpperCase(), ev: store.ev || '333',
     months: store.months || 0, xmode: store.xmode || 'runda', scale: store.scale || 'log', rkind: store.rkind || 'average', rregion: store.rregion || 'country', dots: store.dots !== false };
-  let data = null, rsAll = [], rs = [];
+  let data = null, official = null, liveComps = [], liveTimer = 0, rsAll = [], rs = [];
+  st.zoom = 0;
 
   /* ---------- hämtning ---------- */
   const get = async path => { const r = await fetch(API + path); if (!r.ok) throw new Error(r.status); return r.json(); };
+  const gql = async query => {
+    const r = await fetch(LIVE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query }) });
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    if (j.errors) throw new Error('graphql');
+    return j.data;
+  };
+  /* Pågående tävlingar: WCA säger vilka profilen är med i just nu, WCA Live har tiderna.
+     Tävlingen ligger kvar i minnet tills de officiella resultaten har publicerats (eller fyra veckor gått). */
+  async function loadLive(id) {
+    try {
+      const u = await get('/users/' + id + '?ongoing_competitions=true');
+      const klara = new Set(official.results.map(r => r.competition_id)), gammal = cutoff(1, today);
+      const by = new Map(((store.live || {})[id] || []).map(c => [c.wcaId, c]));
+      for (const c of u.ongoing_competitions || []) by.set(c.id, { ...by.get(c.id), wcaId: c.id, name: c.name, start: c.start_date, end: c.end_date, city: c.city });
+      const list = [...by.values()].filter(c => !klara.has(c.wcaId) && c.end >= gammal);
+      if (list.some(c => !c.liveId)) {
+        const d = await gql(`{ competitions(from: "${list.map(c => c.start).sort()[0]}", limit: 500) { id wcaId } }`);
+        for (const c of list) if (!c.liveId) c.liveId = (d.competitions.find(x => x.wcaId === c.wcaId) || {}).id;
+      }
+      for (const c of list) if (c.liveId && !c.pid) {
+        const d = await gql(`{ competition(id: "${c.liveId}") { competitors { id wcaId } } }`);
+        c.pid = (d.competition.competitors.find(x => x.wcaId === id) || {}).id;
+      }
+      store.live = { ...store.live, [id]: list }; save();
+      if (st.id !== id) return;
+      liveComps = list.filter(c => c.pid);
+      if (!liveComps.length) return;
+      await refreshLive(id);
+      if (liveComps.some(c => c.end >= today)) liveTimer = setInterval(() => { if (!document.hidden) refreshLive(id).catch(() => {}); }, 60000);
+    } catch (e) { /* live är en bonus: utan den visas de officiella resultaten som vanligt */ }
+  }
+  async function refreshLive(id) {
+    const extra = [];
+    for (const c of liveComps) {
+      const d = await gql(`{ person(id: "${c.pid}") { results { ranking best average attempts { result } round { number competitionEvent { event { id } rounds { id } } } } } }`);
+      extra.push(...liveResults(d.person || {}, c));
+    }
+    if (st.id !== id || !official) return;
+    data.results = official.results.concat(extra);
+    data.comps = official.comps.concat(liveComps.map(c => ({ id: c.wcaId, name: c.name, start_date: c.start, city: c.city })));
+    data.events = eventsOf(data.results);
+    data.live = extra.length ? liveComps : [];
+    render();
+  }
+
   async function load(id) {
+    clearInterval(liveTimer); liveComps = []; official = null;
     $('#status').hidden = false; $('#status').innerHTML = 'Hämtar ' + esc(id) + ' från WCA …'; $('#content').hidden = true;
     try {
       const [p, results, comps] = await Promise.all([get('/persons/' + id), get('/persons/' + id + '/results'), get('/persons/' + id + '/competitions')]);
       data = { p, results, comps, events: eventsOf(results) };
-      st.id = id; store.id = id;
+      official = { results, comps };
+      st.id = id; st.zoom = 0; $('#zoom').value = 0; store.id = id;
       store.recent = [{ id, name: p.person.name }, ...(store.recent || []).filter(x => x.id !== id)].slice(0, 6);
       save();
       history.replaceState(null, '', id === DEFAULT_ID ? location.pathname : '?id=' + id);
       if (!data.events.some(e => e.id === st.ev)) st.ev = (data.events.slice().sort((a, b) => b.rounds - a.rounds)[0] || {}).id || '333';
       $('#status').hidden = true; $('#content').hidden = false;
       render();
+      loadLive(id);
     } catch (e) {
       $('#status').innerHTML = (e.message === '404' ? 'Hittar ingen profil med id ' + esc(id) + '.' : 'Kunde inte hämta data från WCA.') +
         ' <button class="btn" id="retry">Försök igen</button> <button class="btn" id="other">Byt profil</button>';
@@ -195,6 +256,10 @@ if (typeof document !== 'undefined') (() => {
     for (const [id, key] of [['#period', 'months'], ['#xmode', 'xmode'], ['#scale', 'scale'], ['#rkind', 'rkind'], ['#rregion', 'rregion']])
       for (const b of $(id).children) b.setAttribute('aria-pressed', String(st[key]) === b.dataset.v);
     $('#dots').checked = st.dots;
+    const lv = data.live || [];
+    $('#live').hidden = !lv.length;
+    $('#live').innerHTML = lv.length ? '<b>Live</b> Preliminära tider från ' + lv.map(c => `<a href="https://live.worldcubeassociation.org/competitions/${esc(c.liveId)}" target="_blank" rel="noopener">${esc(c.name)}</a>`).join(' och ') +
+      (lv.some(c => c.end >= today) ? ' – uppdateras varje minut.' : ' – väntar på att de officiella resultaten publiceras.') : '';
     rsAll = rounds(data.results, data.comps, st.ev);
     rs = inPeriod(rsAll, st.months, today);
     rs.forEach((r, i) => { r.k = i; });
@@ -208,11 +273,16 @@ if (typeof document !== 'undefined') (() => {
     const last = [...rsAll].reverse().find(r => r.average > 0) || rsAll[rsAll.length - 1];
     const lastKind = last && last.average > 0 ? 'average' : 'single', lastV = last ? (lastKind === 'average' ? last.average : last.best) : 0;
     const pb = lastKind === 'average' ? pr.average : pr.single;
-    const diff = last && pb && lastV > 0 && chartable(ev) ? (lastV === pb.best ? 'personbästa' : '+' + fmt(lastV - pb.best, ev, lastKind) + ' mot PB') : '';
+    const diff = last && pb && lastV > 0 && chartable(ev) ? (lastV <= pb.best ? 'personbästa' : '+' + fmt(lastV - pb.best, ev, lastKind) + ' mot PB') : '';
+    // Ett personbästa som slagits i en pågående tävling finns inte i WCA:s officiella rekord än
+    const pbTile = (label, kind, x) => {
+      const key = kind === 'single' ? 'Single' : 'Avg', cur = rsAll.length ? rsAll[rsAll.length - 1]['cur' + key] : 0;
+      if (!cur || (x && cur >= x.best)) return t(label, x ? fmt(x.best, ev, kind) : '–', rank(x));
+      return t(label, fmt(cur, ev, kind), 'Preliminärt, ' + esc([...rsAll].reverse().find(r => r['pb' + key]).comp));
+    };
     const t = (label, value, sub) => `<div class="tile"><div class="tl">${label}</div><div class="tv">${value}</div><div class="ts">${sub}</div></div>`;
     $('#tiles').innerHTML =
-      t('Personbästa, enskilt', pr.single ? fmt(pr.single.best, ev, 'single') : '–', rank(pr.single)) +
-      t('Personbästa, snitt', pr.average ? fmt(pr.average.best, ev, 'average') : '–', rank(pr.average)) +
+      pbTile('Personbästa, enskilt', 'single', pr.single) + pbTile('Personbästa, snitt', 'average', pr.average) +
       t('Försök i tävling', tal(all.length), `${tal(rsAll.length)} rundor · ${dnf} DNF (${all.length ? (dnf / all.length * 100).toFixed(1).replace('.', ',') : 0} %)`) +
       t(lastKind === 'average' ? 'Senaste snitt' : 'Senaste resultat', last ? fmt(lastV, ev, lastKind) : '–', last ? `${esc(last.comp)}, ${fmtDate(last.date)}${diff ? ' · ' + diff : ''}` : '');
   }
@@ -252,7 +322,7 @@ if (typeof document !== 'undefined') (() => {
     const a = la || axis(zero ? 0 : Math.min(...vals), Math.max(...vals), g.b - g.t < 180 ? 3 : 5, isTime(ev)), minutes = a.hi >= 60;
     const y = v => f1(g.b - (tr(v) - tr(a.lo)) / (tr(a.hi) - tr(a.lo)) * (g.b - g.t));
     const svg = a.ticks.map(v => `<line class="grid" x1="${g.l}" x2="${g.r}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${g.l - 8}" y="${y(v) + 4}" text-anchor="end">${fmtAxis(v, ev, minutes)}</text>`).join('');
-    return { y, svg };
+    return { y, svg, hi: a.hi };
   }
   function xScale(g, list, mode) {
     const n = list.length, ticks = [];
@@ -285,13 +355,20 @@ if (typeof document !== 'undefined') (() => {
 
   function chartRounds() {
     const el = $('#c-rounds'), ev = st.ev;
+    $('#zinfo').textContent = ''; $('#zreset').hidden = !st.zoom;
     if (!chartable(ev)) return empty(el, 'Multiblind visas bara i tabellerna – resultatet är poäng och tid i ett.');
     if (!rs.length) return empty(el, 'Inga rundor i vald period.');
     const g = geom(el, { l: 46, r: 58, t: 12, b: 28 }), xs = xScale(g, rs, st.xmode);
-    const vals = rs.flatMap(r => [r.best > 0 ? num(r.best, ev, 'single') : null, r.average > 0 ? num(r.average, ev, 'average') : null,
+    const all = rs.flatMap(r => [r.best > 0 ? num(r.best, ev, 'single') : null, r.average > 0 ? num(r.average, ev, 'average') : null,
       ...(st.dots ? r.attempts.filter(a => a > 0).map(a => num(a, ev, 'single')) : [])]).filter(v => v !== null);
-    if (!vals.length) return empty(el, 'Inga giltiga resultat i vald period.');
-    const ys = yScale(g, vals, ev, false, true), small = rs.length > 30 && g.W < 600 ? 3 : 4;
+    if (!all.length) return empty(el, 'Inga giltiga resultat i vald period.');
+    // Zoom: reglaget sänker grafens överkant steglöst (i logskala) från högsta värdet ner mot det lägsta
+    let vals = all;
+    if (st.zoom > 0) {
+      const lo = Math.min(...all) * 1.15, hi = Math.max(...all);
+      if (hi > lo) { const top = Math.exp(Math.log(hi) + (Math.log(lo) - Math.log(hi)) * st.zoom); vals = all.filter(v => v <= top).concat(top); }
+    }
+    const ys = yScale(g, vals, ev, false, true), cut = all.filter(v => v > ys.hi).length, small = rs.length > 30 && g.W < 600 ? 3 : 4;
     const A = rs.filter(r => r.average > 0).map(r => ({ x: xs.x(r), y: ys.y(num(r.average, ev, 'average')), pb: r.pbAvg, r }));
     const B = rs.filter(r => r.best > 0).map(r => ({ x: xs.x(r), y: ys.y(num(r.best, ev, 'single')), pb: r.pbSingle, r }));
     const dots = st.dots ? rs.map(r => r.attempts.filter(a => a > 0).map(a => `<circle class="att" cx="${xs.x(r)}" cy="${ys.y(num(a, ev, 'single'))}" r="2.2"/>`).join('')).join('') : '';
@@ -299,8 +376,10 @@ if (typeof document !== 'undefined') (() => {
     const dense = (g.r - g.l) / rs.length < 8;
     const line = (pts, c) => `<path class="ln ${c}${dense ? ' thin' : ''}" d="${path(pts)}"/>` + pts.map(p => (p.pb ? `<circle class="pb ${c}" cx="${p.x}" cy="${p.y}" r="${small + 4}"/>` : '') + (dense && !p.pb ? '' : `<circle class="mk ${c}" cx="${p.x}" cy="${p.y}" r="${small}"/>`)).join('');
     const la = A[A.length - 1], lb = B[B.length - 1];
-    el.innerHTML = open(g, 'Snitt och bästa försök per runda') + ys.svg + xs.svg + dots + line(B, 's2') + line(A, 's1') +
-      endLabels(g, [la && { y: la.y, text: fmt(la.r.average, ev, 'average') }, lb && { y: lb.y, text: fmt(lb.r.best, ev, 'single') }]) +
+    if (cut) $('#zinfo').textContent = cut + (cut === 1 ? ' värde' : ' värden') + ' ovanför bilden';
+    el.innerHTML = open(g, 'Snitt och bästa försök per runda') + ys.svg + xs.svg +
+      `<clipPath id="cp-r"><rect x="${g.l - 10}" y="${g.t - 1}" width="${g.r - g.l + 20}" height="${g.b - g.t + 2}"/></clipPath><g clip-path="url(#cp-r)">` + dots + line(B, 's2') + line(A, 's1') + '</g>' +
+      endLabels(g, [la && la.y >= g.t && { y: la.y, text: fmt(la.r.average, ev, 'average') }, lb && lb.y >= g.t && { y: lb.y, text: fmt(lb.r.best, ev, 'single') }]) +
       `<line class="xh" y1="${g.t}" y2="${g.b}"/></svg>`;
     hover(el, rs.map(r => ({ x: xs.x(r), y: r.average > 0 ? ys.y(num(r.average, ev, 'average')) : r.best > 0 ? ys.y(num(r.best, ev, 'single')) : g.b, r })), p => tipRound(p.r));
   }
@@ -309,7 +388,7 @@ if (typeof document !== 'undefined') (() => {
     const bi = r.attempts.indexOf(Math.min(...ok)), wi = r.attempts.findIndex(a => a < 0) >= 0 ? r.attempts.findIndex(a => a < 0) : r.attempts.indexOf(Math.max(...ok));
     return r.attempts.map((a, i) => trim && (i === bi || i === wi) ? '(' + fmt(a, ev, 'single') + ')' : fmt(a, ev, 'single')).join('  ');
   }
-  const tipRound = r => `<b>${esc(r.comp)}</b><div class="tm">${fmtDate(r.date)} · ${ROUND_NAME[r.type] || 'Runda'} · plats ${r.pos}</div>` +
+  const tipRound = r => `<b>${esc(r.comp)}</b><div class="tm">${fmtDate(r.date)} · ${ROUND_NAME[r.type] || 'Runda'}${r.pos ? ' · plats ' + r.pos : ''}${r.live ? ' · preliminärt' : ''}</div>` +
     `<div class="tr"><i class="k s1"></i>Snitt <b>${fmt(r.average, st.ev, 'average')}</b>${r.pbAvg ? ' <em>PB</em>' : ''}</div>` +
     `<div class="tr"><i class="k s2"></i>Bästa <b>${fmt(r.best, st.ev, 'single')}</b>${r.pbSingle ? ' <em>PB</em>' : ''}</div><div class="tm">${attemptsText(r, st.ev)}</div>`;
 
@@ -395,13 +474,15 @@ if (typeof document !== 'undefined') (() => {
       `<span class="rb">${r.rank ? `<i style="width:${Math.max(1.5, r.rank / max * 100).toFixed(1)}%"></i>` : ''}</span><b class="rr">${r.rank ? tal(r.rank) : '–'}</b><span class="rt">${r.rank ? fmt(r.best, r.id, kind) : ''}</span></button>`).join('');
     const ev = st.ev, pb = on => on ? ' <em>PB</em>' : '';
     $('#t-rounds').innerHTML = '<thead><tr><th>Datum</th><th>Tävling</th><th>Runda</th><th class="n">Plats</th><th class="n">Bästa</th><th class="n">Snitt</th><th>Försök</th></tr></thead><tbody>' +
-      ([...rs].reverse().map(r => `<tr><td class="nw">${fmtDate(r.date)}</td><td>${esc(r.comp)}</td><td class="nw">${ROUND_NAME[r.type] || ''}</td><td class="n">${r.pos}</td>` +
+      ([...rs].reverse().map(r => `<tr><td class="nw">${fmtDate(r.date)}</td><td>${esc(r.comp)}${r.live ? ' <em class="lv">live</em>' : ''}</td><td class="nw">${ROUND_NAME[r.type] || ''}</td><td class="n">${r.pos || '–'}</td>` +
         `<td class="n nw">${fmt(r.best, ev, 'single')}${pb(r.pbSingle)}</td><td class="n nw">${fmt(r.average, ev, 'average')}${pb(r.pbAvg)}</td><td class="nw att">${attemptsText(r, ev)}</td></tr>`).join('') ||
         '<tr><td colspan="7">Inga rundor i vald period.</td></tr>') + '</tbody>';
   }
 
   /* ---------- kontroller ---------- */
-  const set = (k, v) => { st[k] = v; store[k] = v; save(); render(); };
+  const set = (k, v) => { st[k] = v; store[k] = v; if (k === 'ev') { st.zoom = 0; $('#zoom').value = 0; } save(); render(); };
+  $('#zoom').oninput = e => { st.zoom = e.target.value / 100; hideTip(); chartRounds(); };
+  $('#zreset').onclick = () => { st.zoom = 0; $('#zoom').value = 0; chartRounds(); };
   $('#events').onclick = e => { const b = e.target.closest('[data-ev]'); if (b) set('ev', b.dataset.ev); };
   $('#t-events').onclick = e => { const b = e.target.closest('[data-ev]'); if (b) { set('ev', b.dataset.ev); scrollTo({ top: 0, behavior: 'smooth' }); } };
   $('#period').onclick = e => { const b = e.target.closest('button'); if (b) set('months', +b.dataset.v); };

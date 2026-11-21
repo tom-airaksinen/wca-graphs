@@ -1,6 +1,6 @@
 /* Offline-cache. Appens egna filer och WCA-svaren hämtas nätverket först och
    faller tillbaka på cachen utan nät, så senast visade profil går att läsa offline. */
-const CACHE = 'wca-graphs-v3';
+const CACHE = 'wca-graphs-v4';
 const DATA = 'wca-graphs-data';
 const SKAL = ['./', './index.html', './app.js', './manifest.json', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png'];
 

@@ -10,6 +10,8 @@ Vanilla PWA utan byggsteg: `index.html` (markup + CSS), `app.js` (logik överst,
 
 Tre anrop per profil mot `https://www.worldcubeassociation.org/api/v0`, utan inloggning eller nyckel: `/persons/{id}` (personbästa och ranking), `/persons/{id}/results` (varje runda med alla försök) och `/persons/{id}/competitions` (datum och ort). Profilsökningen använder `/search/users?persons_table=true&q=`.
 
+Pågående tävlingar: `/users/{id}?ongoing_competitions=true` säger vilka tävlingar profilen är med i just nu, och tiderna hämtas ur WCA Lives öppna GraphQL-API (`https://live.worldcubeassociation.org/api`). De visas som preliminära, uppdateras varje minut och ligger kvar tills de officiella resultaten har publicerats.
+
 Tider är hundradelar; `-1` är DNF, `-2` DNS och `0` inget resultat. Fewest moves och multiblind har egna format, se `fmt()` i `app.js`.
 
 ## Vid ändring
