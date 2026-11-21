@@ -94,4 +94,12 @@ test('logaxel bara när spannet är stort', () => {
   eq(W.logAxis(9.2, 85).ticks, [10, 12, 15, 20, 25, 30, 40, 50, 60, 90]);
 });
 
+test('ranking: bäst placering först, grenar utan resultat sist', () => {
+  const pr = { 333: { average: { best: 1162, country_rank: 183, world_rank: 18149 }, single: { best: 918, country_rank: 174, world_rank: 15606 } },
+    sq1: { average: { best: 2358, country_rank: 95, world_rank: 5566 } }, 777: { single: { best: 30006, country_rank: 98, world_rank: 7410 } } };
+  const ev = [{ id: '333', name: '3x3' }, { id: '777', name: '7x7' }, { id: 'sq1', name: 'Square-1' }];
+  eq(W.rankList(pr, ev, 'average', 'country').map(r => r.id + ':' + r.rank), ['sq1:95', '333:183', '777:0']);
+  eq(W.rankList(pr, ev, 'single', 'world').map(r => r.id + ':' + r.rank), ['777:7410', '333:15606', 'sq1:0']);
+});
+
 console.log(`\n${n} tester gick igenom`);

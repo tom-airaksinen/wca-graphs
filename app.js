@@ -1,7 +1,7 @@
 'use strict';
 /* WCA Graphs – statistik ur World Cube Associations öppna API.
    Överst: ren logik (testas i test/kor.mjs). Nederst: DOM och grafer. */
-const APP_VERSION = 1;
+const APP_VERSION = 2;
 const API = 'https://www.worldcubeassociation.org/api/v0';
 const DEFAULT_ID = '2019AIRA01';
 
@@ -141,7 +141,14 @@ function histogram(vals, time) {
   return { step, bins };
 }
 
-var WCA = { fmt, fmtCs, fmtMbf, fmtAxis, fmtDate, num, rounds, eventsOf, inPeriod, cutoff, median, yearly, niceStep, axis, logAxis, histogram, flag };
+// Grenarna sorterade efter placering, bäst först. kind: single/average, region: country/continent/world.
+// Grenar utan resultat av den sorten hamnar sist med rank 0.
+function rankList(pr, events, kind, region) {
+  return events.map(e => { const x = (pr[e.id] || {})[kind]; return { id: e.id, name: e.name, rank: x ? x[region + '_rank'] || 0 : 0, best: x ? x.best : 0 }; })
+    .sort((a, b) => (a.rank || Infinity) - (b.rank || Infinity));
+}
+
+var WCA = { rankList, fmt, fmtCs, fmtMbf, fmtAxis, fmtDate, num, rounds, eventsOf, inPeriod, cutoff, median, yearly, niceStep, axis, logAxis, histogram, flag };
 
 /* ================= DOM ================= */
 if (typeof document !== 'undefined') (() => {
@@ -153,7 +160,7 @@ if (typeof document !== 'undefined') (() => {
   const store = (() => { try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch (e) { return {}; } })();
   const save = () => { try { localStorage.setItem(LS, JSON.stringify(store)); } catch (e) { /* privat läge: appen fungerar ändå */ } };
   const st = { id: (new URLSearchParams(location.search).get('id') || store.id || DEFAULT_ID).toUpperCase(), ev: store.ev || '333',
-    months: store.months || 0, xmode: store.xmode || 'runda', scale: store.scale || 'log', dots: store.dots !== false };
+    months: store.months || 0, xmode: store.xmode || 'runda', scale: store.scale || 'log', rkind: store.rkind || 'average', rregion: store.rregion || 'country', dots: store.dots !== false };
   let data = null, rsAll = [], rs = [];
 
   /* ---------- hämtning ---------- */
@@ -185,7 +192,7 @@ if (typeof document !== 'undefined') (() => {
       `<div class="who"><h1>${esc(per.name)}</h1><p>${flag(per.country_iso2)} <a href="${esc(per.url)}" target="_blank" rel="noopener">${esc(per.wca_id)}</a> · ${tal(p.competition_count)} tävlingar · ${tal(p.total_solves || 0)} lösningar` +
       (m.total ? ` · ${m.gold} guld, ${m.silver} silver, ${m.bronze} brons` : '') + '</p></div>';
     $('#events').innerHTML = data.events.map(e => `<button class="chip" data-ev="${e.id}" aria-pressed="${e.id === st.ev}">${esc(e.name)} <span>${e.rounds}</span></button>`).join('');
-    for (const [id, key] of [['#period', 'months'], ['#xmode', 'xmode'], ['#scale', 'scale']])
+    for (const [id, key] of [['#period', 'months'], ['#xmode', 'xmode'], ['#scale', 'scale'], ['#rkind', 'rkind'], ['#rregion', 'rregion']])
       for (const b of $(id).children) b.setAttribute('aria-pressed', String(st[key]) === b.dataset.v);
     $('#dots').checked = st.dots;
     rsAll = rounds(data.results, data.comps, st.ev);
@@ -376,9 +383,16 @@ if (typeof document !== 'undefined') (() => {
   /* ---------- tabeller ---------- */
   function tables() {
     const iso = data.p.person.country_iso2, pr = data.p.personal_records || {};
-    const cell = (x, ev, kind) => x ? `<b>${fmt(x.best, ev, kind)}</b><small>${esc(iso)} ${tal(x.country_rank)} · världen ${tal(x.world_rank)}</small>` : '–';
-    $('#t-events').innerHTML = '<thead><tr><th>Gren</th><th>Enskilt</th><th>Snitt</th><th class="n">Rundor</th></tr></thead><tbody>' +
-      data.events.map(e => `<tr data-ev="${e.id}" class="${e.id === st.ev ? 'on' : ''}"><td>${esc(e.name)}</td><td>${cell((pr[e.id] || {}).single, e.id, 'single')}</td><td>${cell((pr[e.id] || {}).average, e.id, 'average')}</td><td class="n">${e.rounds}</td></tr>`).join('') + '</tbody>';
+    const per = data.p.person, kind = st.rkind;
+    let land = per.country_iso2;
+    try { land = new Intl.DisplayNames('sv', { type: 'region' }).of(per.country_iso2); } catch (e) { /* äldre webbläsare: landskoden duger */ }
+    const kont = { _Europe: 'Europa', _Asia: 'Asien', _Africa: 'Afrika', '_North America': 'Nordamerika', '_South America': 'Sydamerika', _Oceania: 'Oceanien' }[(per.country || {}).continent_id] || 'Kontinenten';
+    const var_ = { country: 'i ' + land, continent: 'i ' + kont, world: 'i världen' }[st.rregion];
+    $('#rregion').children[0].textContent = land; $('#rregion').children[1].textContent = kont;
+    const list = rankList(pr, data.events, kind, st.rregion), max = Math.max(1, ...list.map(r => r.rank)), top = list[0];
+    $('#rank-sum').textContent = top && top.rank ? `Starkast ${var_}: ${top.name}, plats ${tal(top.rank)} (${kind === 'average' ? 'snitt' : 'enskilt'}).` : 'Inga rankade resultat än.';
+    $('#t-events').innerHTML = list.map((r, i) => `<button class="rk${r.id === st.ev ? ' on' : ''}" data-ev="${r.id}"><span class="rn">${r.rank ? i + 1 : ''}</span><span class="re">${esc(r.name)}</span>` +
+      `<span class="rb">${r.rank ? `<i style="width:${Math.max(1.5, r.rank / max * 100).toFixed(1)}%"></i>` : ''}</span><b class="rr">${r.rank ? tal(r.rank) : '–'}</b><span class="rt">${r.rank ? fmt(r.best, r.id, kind) : ''}</span></button>`).join('');
     const ev = st.ev, pb = on => on ? ' <em>PB</em>' : '';
     $('#t-rounds').innerHTML = '<thead><tr><th>Datum</th><th>Tävling</th><th>Runda</th><th class="n">Plats</th><th class="n">Bästa</th><th class="n">Snitt</th><th>Försök</th></tr></thead><tbody>' +
       ([...rs].reverse().map(r => `<tr><td class="nw">${fmtDate(r.date)}</td><td>${esc(r.comp)}</td><td class="nw">${ROUND_NAME[r.type] || ''}</td><td class="n">${r.pos}</td>` +
@@ -392,6 +406,8 @@ if (typeof document !== 'undefined') (() => {
   $('#t-events').onclick = e => { const b = e.target.closest('[data-ev]'); if (b) { set('ev', b.dataset.ev); scrollTo({ top: 0, behavior: 'smooth' }); } };
   $('#period').onclick = e => { const b = e.target.closest('button'); if (b) set('months', +b.dataset.v); };
   $('#xmode').onclick = e => { const b = e.target.closest('button'); if (b) set('xmode', b.dataset.v); };
+  $('#rkind').onclick = e => { const b = e.target.closest('button'); if (b) set('rkind', b.dataset.v); };
+  $('#rregion').onclick = e => { const b = e.target.closest('button'); if (b) set('rregion', b.dataset.v); };
   $('#scale').onclick = e => { const b = e.target.closest('button'); if (b) set('scale', b.dataset.v); };
   $('#dots').onchange = e => set('dots', e.target.checked);
   let lastW = innerWidth, raf = 0;

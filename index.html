@@ -109,8 +109,19 @@ tr:last-child td { border-bottom: 0; }
 .nw { white-space: nowrap; }
 td.att { color: var(--ink2); font-variant-numeric: tabular-nums; }
 td small { display: block; color: var(--ink2); font-size: 11px; white-space: nowrap; }
-#t-events tbody tr { cursor: pointer; }
-#t-events tbody tr:hover, #t-events tr.on { background: var(--wash); }
+.rc { margin-bottom: 8px; }
+.sum { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+.rk { display: grid; grid-template-columns: 18px 86px minmax(30px, 1fr) 56px 62px; align-items: center; gap: 8px; width: 100%; border: 0; border-top: 1px solid var(--grid); background: none; padding: 9px 6px; text-align: left; cursor: pointer; font-size: 13px; border-radius: 0; }
+.rk.rh { cursor: default; color: var(--ink2); font-size: 12px; padding: 4px 6px; border-top: 0; border-bottom: 1px solid var(--base); }
+.rk.rh:hover { background: none; }
+.rk.rh .rr { font-weight: 500; }
+#t-events .rk:first-child { border-top: 0; }
+.rk:hover, .rk.on { background: var(--wash); }
+.rn { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.re { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb i { display: block; height: 8px; min-width: 3px; background: var(--s1); border-radius: 0 4px 4px 0; }
+.rr, .rt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rt { color: var(--ink2); font-size: 12px; }
 
 #status { padding: 60px 0; text-align: center; color: var(--ink2); }
 footer { color: var(--muted); font-size: 12px; margin-top: 18px; text-align: center; }
@@ -195,9 +206,15 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
     </div>
     <div class="grid2">
       <section class="card">
-        <h2>Alla grenar</h2>
-        <p class="sub">Personbästa och ranking. Tryck på en rad för att byta gren.</p>
-        <div class="scroll"><table id="t-events"></table></div>
+        <h2>Ranking per gren</h2>
+        <p class="sub">Grenarna sorterade efter placering, bäst först. Kortare stapel är närmare toppen. Tryck på en gren för att se dess grafer.</p>
+        <div class="controls rc">
+          <div class="seg" id="rkind" aria-label="Resultattyp"><button data-v="average">Snitt</button><button data-v="single">Enskilt</button></div>
+          <div class="seg" id="rregion" aria-label="Område"><button data-v="country">Landet</button><button data-v="continent">Kontinenten</button><button data-v="world">Världen</button></div>
+        </div>
+        <p class="sum" id="rank-sum"></p>
+        <div class="rk rh"><span></span><span>Gren</span><span></span><span class="rr">Plats</span><span class="rt">Resultat</span></div>
+        <div id="t-events"></div>
       </section>
       <section class="card">
         <h2>Rundor</h2>
